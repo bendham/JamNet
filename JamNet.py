@@ -1,6 +1,4 @@
-from logging import error
 import os
-from discord import message
 from discord.errors import GatewayNotFound
 from dotenv import load_dotenv
 from helper import *
@@ -8,6 +6,8 @@ from discord.ext.commands import Bot
 from youtube_dl import YoutubeDL
 from discord.utils import get
 from discord import FFmpegPCMAudio
+from discord import VoiceClient
+import asyncio
 
 load_dotenv()
 
@@ -41,6 +41,37 @@ async def on_message(ctx):
 @bot.command(name='leave', help="Say by to JamNet")
 async def on_message(ctx):
     await ctx.channel.send(await leave(ctx))
+
+@bot.event
+async def on_voice_state_update(mem, before, after):
+
+    if before.channel is None and after.channel is not None:
+        vc: VoiceClient = after.channel.guild.voice_client
+        guildId = vc.guild.id
+
+        wait_time = 15 # s
+
+        afk_count = 0
+        afk_max = 2 # => wait_time*afk_max = 7.5 mins right now
+        keep_connected = True
+        while keep_connected:
+            await asyncio.sleep(wait_time)
+
+            if afk_count == afk_max:
+                # print("Audio not playing for 10 minutes. Leaving.")
+                await vc.disconnect()
+                keep_connected = False
+
+
+            if not vc.is_playing() and len(musicQueue[guildId]) == 0:
+                # print("Detected no music playing... leaving in 10 seconds")
+                await vc.disconnect()
+                keep_connected = False
+
+            elif not vc.is_playing():
+                afk_count += 1
+            else:
+                afk_count = 0
 
 async def resume(ctx):
     voiceStatus = ctx.author.voice
@@ -106,6 +137,8 @@ async def skip(ctx):
 
 
 async def play(ctx):
+
+    # print(Intents.voice_states)
     guild = ctx.guild
     guildId = guild.id
     member = ctx.author
@@ -117,7 +150,7 @@ async def play(ctx):
     if(len(textMessage) != 2):
          return "Please enter the command properly!"
     
-    if("www.youtube.com" not in textMessage[1]):
+    if(not ("www.youtube.com" in textMessage[1] or "youtu.be" in textMessage[1])):
         return "JamNet can only play YouTube links right now!"
 
 
@@ -129,7 +162,6 @@ async def play(ctx):
             return "Theres only one JamBot to go around and it's already being used!"
       else:
         try:
-            print("Connecting")
             await channel.connect()
             voice_client = get(ctx.bot.voice_clients, guild=ctx.guild)
             musicQueue[guildId] = []
@@ -141,12 +173,10 @@ async def play(ctx):
       musicQueue[guildId].append(textMessage[1])
 
       if not voice_client.is_playing():
-          print("Downloading...")
           with YoutubeDL(YDL_OPTIONS) as ydl:
-              info = ydl.extract_info(musicQueue[guildId].pop(0), download=False)
+              info = ydl.extract_info(musicQueue[guildId][0], download=False)
           URL = info['formats'][0]['url']
           voice_client.play(FFmpegPCMAudio(URL, **FFMPEG_OPTIONS), after=lambda e: play_next(guildId, voice_client, ctx))
-          voice_client.is_playing()
           return "Playing your song!"
       else:
         return "Adding your song to the queue!"
@@ -155,10 +185,15 @@ async def play(ctx):
 
 def play_next(id, vc, ctx):
     if(len(musicQueue[id]) >= 1):
+        musicQueue[id].pop(0) # Pop the just played song off the queue
+
+    if(len(musicQueue[id]) >= 1):
           with YoutubeDL(YDL_OPTIONS) as ydl:
               info = ydl.extract_info(musicQueue[id].pop(0), download=False)
           URL = info['formats'][0]['url']
-          vc.play(FFmpegPCMAudio(URL, **FFMPEG_OPTIONS), after=lambda e: play_next(id, vc, ctx))
+          vc.play(FFmpegPCMAudio(URL, **FFMPEG_OPTIONS), after= lambda e: play_next(id, vc, ctx))
+    else:
+        vc.stop() # Dont think I need this... but what ev
 
 
 
