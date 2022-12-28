@@ -1,6 +1,6 @@
 # JamNet
 
-Totally not something I developed to circumvent the banned discord bots that play youtube music on Discord servers.
+Plays youtube music on Discord servers.
 
 ## Disclaimer 
 
